@@ -172,7 +172,7 @@ def connection_to_data(myblob:func.InputStream):
     
 
 
-#From this Python function, we could create another Azure Function,
+#From this Python function on, we could create another Azure Function,
 #one for the Step1(cleaning) and other for the Step2(summarizing)
 
 
