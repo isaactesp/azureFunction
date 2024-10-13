@@ -4,7 +4,7 @@
 
 #### We suppose that we have a suscription of Microsoft Cloud(Azure), in which we have the next resources:
 - Storage Account with a container.
-- Function App(where this project will be deployed).
+- Function App, Blob Trigger(where this proyect will be deployed).
 - OpenAI service.
 
 ## Specification
