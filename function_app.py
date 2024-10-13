@@ -1,6 +1,6 @@
 """
 This script is an Azure Function, which is activated when a file(in .json format) is uploaded
-as a blob in a specified container allocated in the cloud, manage the blob and upload another
+as a blob in a specified container allocated in the cloud, it manages the blob and upload another
 blob named 'summary_report.txt' that contains a summary of the uploaded file in the same container
 """
 
@@ -25,16 +25,16 @@ import re
 
 #Libraries for use the resource of OpenAI that will do the summary
 from openai import AzureOpenAI
-#To work with environment variables
+#To manage environment variables
 import os
 
 
-#To work with blobs
+#To manage blobs
 from azure.storage.blob import BlobServiceClient
 
 
 def filter_of_confidence(doc, threshold):
-    #Now I create function thet removes the part of the data that we feel that
+    #I create function thet removes the part of the data that we feel that
     #hasn't been extracted in a right way with the OCR, because of its confidence
 
     #PRE: doc is one of the components(dictionary) of the main list (composed of many documents) and 
@@ -143,7 +143,7 @@ def json_to_text_with_metadata(data):
 
 def cleaner_of_data(data):
 
-    #Filter de data by confidence
+    #Filter the data by confidence
     filter1=filter_data_by_confidence(data,0.8)
     #Filter the data (that has been filtered by confidence), by stopwords
     filter2=filter_of_stopwords(filter1)
@@ -172,7 +172,7 @@ def connection_to_data(myblob:func.InputStream):
     
 
 
-#From this Python function, we could the code creating another Azure Function,
+#From this Python function, we could create another Azure Function,
 #one for the Step1(cleaning) and other for the Step2(summarizing)
 
 
