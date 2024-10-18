@@ -1,13 +1,12 @@
 """
 This script is an Azure Function, which is activated when a file(in .json format) is uploaded
 as a blob in a specified container allocated in the cloud, it manages the blob and upload another
-blob named 'summary_report.txt' that contains a summary of the uploaded file in the same container
+blob named 'summary_report.json' that contains a summary of the uploaded file in the same container
 """
-
 
 #import the azure.functions module
 import azure.functions as func
-#to log messages during the execution
+#to log messages during the execution, monitoring all the process
 import logging
 
 #Library to import the json
@@ -15,7 +14,7 @@ import json
 #Lbrary that will allow us to clean symbols(not relevant)
 import nltk
 #Library for the stopwords
-from nltk.corpus import stopwords
+from nltk.corpus import stopwords  
 
 #Just in case we need to download stopwords
 nltk.download('stopwords')
@@ -24,16 +23,49 @@ nltk.download('stopwords')
 import re
 
 #Libraries for use the resource of OpenAI that will do the summary
-from openai import AzureOpenAI
+from openai import AzureOpenAI#class
 #To manage environment variables
 import os
 
 
 #To manage blobs
-from azure.storage.blob import BlobServiceClient
+from azure.storage.blob import BlobServiceClient#class
+
+#To manage the types used along the script
+from typing import List, TypedDict, Union
 
 
-def filter_of_confidence(doc, threshold):
+
+
+
+#I define some typed classes I'm going to use to type my code, highlight that all of them inherits from TypedDict
+class Word(TypedDict):
+    content: str
+    confidence: float #in (0,1)
+
+class Page(TypedDict):
+    page_number: int
+    width: float
+    height: float
+    unit: str
+    words: List[Word]
+    selection_marks: List
+
+class Document(TypedDict):
+    doc_id: int
+    content: List[Page]
+
+#Filtered typed classes
+class Filtered1Page(TypedDict):
+    page_number: int
+    words: List[Word]
+class Filtered1Document(TypedDict):
+    doc_id: int
+    content: List[Filtered1Page]
+
+
+
+def filter_of_confidence(doc: Document, threshold: float)->Filtered1Document:
     #I create function thet removes the part of the data that we feel that
     #hasn't been extracted in a right way with the OCR, because of its confidence
 
@@ -43,7 +75,7 @@ def filter_of_confidence(doc, threshold):
     #deleting the keys "selection marks", "width", "height" and "unit" from the "content" key of each page because aren't relevant
 
    #Initialize a new dictionary for the filtered document, maintaining the format
-    filtered_doc = {
+    filtered_doc : Filtered1Document = {
         'doc_id': doc['doc_id'],  #Preserve doc_id
         'content': []
     }
@@ -58,6 +90,7 @@ def filter_of_confidence(doc, threshold):
 
         #Filter words based on confidence
         for word in page['words']:
+            #get the key confidence, if it doesn't exist return 0
             if word.get('confidence', 0) > threshold:
                 #Preserve the whole word structure (content and confidence together)
                 filtered_page['words'].append({'content': word['content'],'confidence': word['confidence']})
@@ -67,14 +100,21 @@ def filter_of_confidence(doc, threshold):
     
     return filtered_doc
 
-def filter_data_by_confidence(data, threshold):
+def filter_data_by_confidence(data: List[Document], threshold:float)->List[Filtered1Document]:
     #PRE: data is the whole data(composed of dictionaries, each document is one dictionary) we want to filter by confidence
     #POST: returns the data in same format but filtered by confidence
     return [filter_of_confidence(doc, threshold) for doc in data]
 
 
+#Define the typed classes uses in the filter2
+class Filtered2Page(TypedDict):
+    page_number: int
+    words: List[str]
+class Filtered2Document(TypedDict):
+    doc_id: int
+    content: List[Filtered2Page]
 
-def clean_words(words):
+def clean_words(words:List[Word])->List[str]:
     #PRE: words is a list of dictionaries, which every dictionary has at least a 'content' key
     #POST: return a list of strings, without stopwords(words with a stopword in the key 'content') and without
     #words that are not relevant for the summarizer
@@ -83,16 +123,16 @@ def clean_words(words):
     pattern=re.compile(r'^[a-zA-Z]{3,}$')
     return [word['content'] for word in words if (word['content'].lower() not in stop_words) and (pattern.match(word['content'].lower()))]
 
-def filter_of_stopwords(data):
+def filter_of_stopwords(data:List[Document])->List[Filtered2Document]:
     #PRE: data has a json format and has been filtered by confidence
     #POST: returns data in json format, but now 'words' is returned as a list of 
     #strings(with all the words of each page filtered)
 
-    filtered_by_stopwords = []
+    filtered_by_stopwords: List[Filtered2Document] = []
     
     #Iterate over each document
     for doc in data:
-        cleaned_content = []
+        cleaned_content:Filtered2Document = []
         
         #Iterate over each page in the document
         for page in doc['content']:
@@ -108,12 +148,12 @@ def filter_of_stopwords(data):
     return filtered_by_stopwords
 
 
-def json_to_text_with_metadata(data):
+def json_to_text_with_metadata(data: List[Filtered2Document])->str:
     #We want to transform the json in raw text to be sent to the AI
-    #PRE: data must be a json with the next format
+    #PRE: data must have the next format
     #  [{"doc_id": docNum1, 
     #    "content":[{"page_number": pageNum1,
-    #                "words":["word1","workd2",...]},   //end of the page1 of the doc1
+    #                "words":["word1","word2",...]},   //end of the page1 of the doc1
     #               {"page_number": pageNum2,
     #                "words":[...]},{...}]  //end of content of the doc1
     #   {"doc_id": docNum2,
@@ -123,9 +163,9 @@ def json_to_text_with_metadata(data):
     #in an string(but specifying document and page content)
 
     #With this function we want to have the data in linear format, because
-    #some NPL services would process better the data in this format
+    #some NLP(Natural Processing Language) services would process better the data in this format
    
-    text_content = []
+    text_content: List[str] = []
 
     #Go through all the documents in the data
     for document in data:
@@ -134,105 +174,59 @@ def json_to_text_with_metadata(data):
         #Go through all the pages on each document
         for page in document['content']:
             page_number = page['page_number'] 
-            #Add the number of document and page before the words 
+            #Add to the list the number of document and page before the words 
             text_content.append(f"\n[Document {doc_id}, Page {page_number}]\n")
-            #Add the words of each page
+            #Add to the list all the words of each page
             text_content.extend(page['words'])
-    #Return the list of words into continous text
+    #Return words into continous text, joining all the elements of text_content
     return ' '.join(text_content) 
 
-def cleaner_of_data(data):
+def cleaner_of_data(data:List[Document])->str:
+    #PRE: data is a list of documents we want to clean
+    #POST:returns a string with the cleaned data form each page and document
+
 
     #Filter the data by confidence
     filter1=filter_data_by_confidence(data,0.8)
-    #Filter the data (that has been filtered by confidence), by stopwords
-    filter2=filter_of_stopwords(filter1)
+    #Filter the data (that has been filtered by confidence), by stop words
+    filter2 =filter_of_stopwords(filter1)
     #Write the json document into continous text, specifying Document and Page numbers
     continuousText=json_to_text_with_metadata(filter2)
     
     return continuousText
 
-def connection_to_data(myblob:func.InputStream):
+def connection_to_data(myblob: func.InputStream)->List[Document]:
     #PRE:myblob is the new blob uploaded in a certain container in the cloud
-    #POST: returns the json file saved in the blob
+    #POST: returns the json file saved in the blob but in object format
    
     try:
-        #Read the content of the blob
+        #Read the content of the blob, given as a string
         blob_data=myblob.read().decode('utf-8')
         
-        #Convert the content of the blob into a json
+        #Convert the content of the blob into python objects format
         jsonData=json.loads(blob_data)
         logging.info("Data from the blob obtained correctly")
         return jsonData
 
     except Exception as e:
-        logging.error("Error obtaining the data from the blob")
+        logging.error(f"Error obtaining the data from the blob: {e}")
         #At this point we will see the error in the logs of the Azure Function
         return None
     
 
 
-#From this Python function on, we could create another Azure Function,
+#From this next function on , we could create another Azure Function,
 #one for the Step1(cleaning) and other for the Step2(summarizing)
 
 
-def extract_documents_and_pages(importantData):
-    #PRE: immportantData has this format:
-    #[Document 1, Page 1]
-    #...
-    #[Document 1, Page 2]
-    #...
-    #POST: returns the same information but in json format like: 
-    #[{"doc_id"=1,"page_number"=1, "text": "all text of the page"},{"doc_id"=1,"page_number"=2, "text":"..."},...,{"doc_id"=2, "page_number"=1,"text": "..."}]
-    #so puts each page as one object, that is in a certain document and has a certain text
-
-    
-    #With this function we want to know from where is obtaining the openAI resource the information of each point in the summary
-    documents = []
-    current_document = None
-    current_page = None
-    current_text = []
-
-    #Regex to detect lines like '[Document X, Page Y]'
-    pattern = re.compile(r"\[Document (\d+), Page (\d+)\]")
-
-    for line in importantData.splitlines():
-        match = pattern.match(line.strip())
-        if match:
-            #If we already have accumulated text, save the previous document's content
-            if current_document and current_page and current_text:
-                documents.append({
-                    'doc_id': current_document,
-                    'page_number': current_page,
-                    'text': ' '.join(current_text)
-                })
-
-            #Start a new document/page
-            current_document = match.group(1)
-            current_page = match.group(2)
-            current_text = []
-        else:
-            #Accumulate text for the current document and page
-            current_text.append(line.strip())
-
-    #Add the last document/page to the list if available
-    if current_document and current_page and current_text:
-        documents.append({
-            'doc_id': current_document,
-            'page_number': current_page,
-            'text': ' '.join(current_text)
-        })
-
-    return documents
-
-def summarize_with_openai(text_to_summarize):
-    #PRE: immportantData is an array of objects, each object is a page from the whole cleaned data
+def summarize_with_openai(text_to_summarize: str)->str:
+    #PRE: immportantData is an list of objects, each object is a page from the whole cleaned data
     #POST: returns the final summary in a sequence of points with metadata(from which document and page it has obtained each point)
     try:
-        #Get the endpoint and key from the environment
-        endpoint = os.getenv("ENDPOINT_URL","https://gptsummary.openai.azure.com/")
-        deployment = os.getenv("DEPLOYMENT_NAME","gpt-4-32k")
-        subscription_key = os.getenv("AZURE_OPENAI_API_KEY","5c6e773f47fa41d096e338c91a3a5b1f")
+        #Get the endpoint and key from the virtual  environment
+        endpoint = os.getenv("ENDPOINT_URL_AI")
+        deployment = os.getenv("DEPLOYMENT_NAME_AI")
+        subscription_key = os.getenv("AZURE_OPENAI_API_KEY")
         #Initialize Azure OpenAI client with key-based authentication
         client = AzureOpenAI(
             azure_endpoint = endpoint,
@@ -249,7 +243,7 @@ def summarize_with_openai(text_to_summarize):
             },
             {
                 "role": "user",
-                "content": f"Sum up this collection of documents in 20 different important points and tell me from where you have took each concept:\n{text_to_summarize}"
+                "content": f"Sum up this collection of documents in 10 different important concepts and tell me from which certain page you took each concept. The result must be in json format:\n{text_to_summarize}"
             }],
             max_tokens=800,
             temperature=0.7,
@@ -259,8 +253,9 @@ def summarize_with_openai(text_to_summarize):
             stop=None,
             stream=False
         )
-        #response will be the whole answer of the gpt-4 service
+        #response will be the whole answer of the gpt-4 service, in json format
         response= completion.to_json()
+        #Obtain the objects from the json
         data = json.loads(response)
         #We want only the summary
         summary=data["choices"][0]["message"]["content"]
@@ -272,22 +267,17 @@ def summarize_with_openai(text_to_summarize):
         return None
     
 
-def validate_summary(summary):
-    #PRE: summary is the supposed summary received from the OpenAI service
-    #POST: returns true if the summary is divided in points like: 1. (point one text) 2. (point two text) ... N. (point N text)
+def validate_summary(summary:str)->Union[Union[list,dict],None]:
+    #PRE: summary is the summary received from the OpenAI service
+    #POST: returns the summary if it's in json format and None in other case
 
-        #Regular expression to validate next structure in the summary: 1. (...) 2. (...) ... n. (...)
-        patron = r'^\d+\.\s.*$'
-        
-        lines=summary.strip().split('\n')
-        for line in lines:
-            #Sometimes gpt-4 returns me the summary with empty lines between the points
-            if line.strip() == '':
-                continue
-            if not re.match(patron,line.strip()):
-                return False
-        
-        return True
+    try:
+        summaryJson=json.loads(summary)
+        logging.info('Summary schematic and standardised in json format.')
+        return summaryJson
+    except Exception as e:
+        logging.info(f'The summary is not in json format: {e}')
+        return None
     
 
     
@@ -295,17 +285,14 @@ def validate_summary(summary):
 #in my case I have choosen creating a blob in the same container that THE INITIAL DATA WAS UPLOADED, which
 #produce this Azure Function to start
 
-def upload_to_blob(container_name, blob_name, text):
+def upload_to_blob(container_name:str, blob_name:str, text: Union[list,dict])->bool:
     #PRE: container_name is a container resource created in the Azure cloud, blob_name is a string which indicates the blob where
     #the final summary will be located, text is the final summary
-    #POST: returns a message(string) of OK(after creating the blob with text in the container) if the summary is well uploaded to the container(in a blob)
-    #and None in other case
+    #POST: returns true if the summary has been well uploaded to the container(in a blob) and false in other case
+
     try:
         #Get the connection string from environment variables
         connection_string = os.getenv("Connection_STORAGE")
-
-        if not connection_string:
-            raise ValueError("Azure Storage connection string is not configured properly.")
 
         #Create a BlobServiceClient object to interact with the Blob service
         blob_service_client = BlobServiceClient.from_connection_string(connection_string)
@@ -313,21 +300,24 @@ def upload_to_blob(container_name, blob_name, text):
         #Get the reference to the container
         container_client = blob_service_client.get_container_client(container_name)
 
-
         #Create a reference to upload the text in the blob of name
         blob_client = container_client.get_blob_client(blob_name)
 
         #Upload text to the blob, if it was another blob with the same name, rewrite the content of it 
         #and if it wasn't any blob with that name we create it
-        blob_client.upload_blob(text.encode('utf-8'), blob_type="BlockBlob", overwrite=True)  
+        summary_to_encode=json.dumps(text,indent=4)
 
-        
-        return f"Summary uploaded successfully to {blob_name} in the container: {container_name}"
+        blob_client.upload_blob(summary_to_encode.encode('utf-8'), blob_type="BlockBlob", overwrite=True)  
+
+        #Upload a message into the loggings to communicate that the result has been uploades
+        logging.info(f"Summary uploaded successfully to {blob_name} in the container: {container_name}")
+
+        return True
 
     except Exception as e:
         logging.error(f"Error uploading summary to blob: {e}")
         #At this point we will see the error in the logs of the Azure Function
-        return None
+        return False
 
 app = func.FunctionApp()
 
@@ -339,43 +329,37 @@ app = func.FunctionApp()
 
 #path is the route of the blob that will activate the function
 
-#connection is the configuration(defined in local.settings.json) that we are going to use to 
-#access to the container in the cloud, we can se in the local settings thet is the Connection String of the 
-#resource located in the cloud
+#connection is the configuration that we are going to use to access to the container in the cloud
 
-def blob_trigger(myblob: func.InputStream):
+def blob_trigger(myblob: func.InputStream)->bool:
     
-    logging.info(f"Python blob trigger function processed blob"
-                f"Name: {myblob.name}")
+    logging.info(f"Python blob trigger function processed blob. Name of the blob: {myblob.name}")
     
-    if "summary_report.txt" in myblob.name:
+    if "summary_report.json" == myblob.name:
         #We don't want to repeat the activation of the function uploading the final summary(another blob) in the container
-        logging.info(f"Skipping processing for blob: {myblob}")
+        logging.info(f"Skipping process for blob: {myblob}")
         return
 
     #Gets the data of the blob that has been uploaded in json format
     json_data=connection_to_data(myblob)
+
     if json_data:
         #Clean data
         importantData=cleaner_of_data(json_data)
-        #Manage the cleaned data for being in the best format to send it to the OpenAI resource
-        data_for_gpt4=extract_documents_and_pages(importantData)
+       
         #Send the data to the OpenAI resource
-        SUMMARY=summarize_with_openai(data_for_gpt4)
+        summary=summarize_with_openai(importantData)
         
-        if SUMMARY:
-            logging.info(f"Final summary of the data updated in the container:\n {SUMMARY}")
-            if validate_summary(SUMMARY):
+        if summary:
+            logging.info(f"Final summary of the data updated in the container:\n {summary}")
+            summaryJSON=validate_summary(summary)
             
-                #Upload the final summary in a blob named "summary_report.txt"
-                finalBlob="summary_report.txt"
-                logging.info(upload_to_blob('container',finalBlob,SUMMARY))
-            else:
-                logging.error("The summary is not schematic and standardised")
-        else:
-            logging.error('Error summarizing with the OpenAI service')
-    else:
-        logging.error('Error accessing to the initial data')
+            if summaryJSON:
+                #Upload the final summary in a blob named "summary_report.json"
+                finalBlob="summary_report.json"
+                #will return a bool that will say if all the process has run correctly
+                upload_to_blob('container', finalBlob, summaryJSON)
+            
     
   
     
