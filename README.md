@@ -50,7 +50,7 @@
   1. Clean the data(which includes connecting to the blob in which is the data). Functions:
 `filter_of_confidence()`,`filter_data_by_confidence()`,`clean_words()`,`filter_of_stopwords()`,`json_to_text_with_metadata()`,`cleaner_of_data()`,`connection_to_data()`    
   2. Summarize the cleaned data(which includes connecting to the OpenAI resource). Functions:
-     `extract_documents_and_pages()`,`summarize_with_openai()`
+    `summarize_with_openai()`
   3. Validate the summary(ensure the summary is in schematic format). Functions:
      `validate_summary()`
   4. Upload the summary at the container(with a blob client). Functions:
