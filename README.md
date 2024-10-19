@@ -41,7 +41,7 @@
 ]
 ```
 
-#### The function will manage the blob(storage solution of Azure) of data that has been uploaded and will create another blob in the same container. This second blob will contain a .JSON file with a summary of the data divided by points(with metadata, from which document and page it has obtained each point).
+#### The function will manage the blob(storage solution of Azure) of data that has been uploaded and will create another blob in the same container. This second blob will contain a .txt file with a summary of the data divided by points(with metadata, from which document and page it has obtained each point).
 
 ## Inner functions
 
