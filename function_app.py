@@ -121,7 +121,7 @@ def clean_words(words:List[Word])->List[str]:
 
     stop_words=set(stopwords.words('english'))
     pattern=re.compile(r'^[a-zA-Z]{3,}$')
-    return [word['content'] for word in words if (word['content'].lower() not in stop_words) and (pattern.match(word['content'].lower()))]
+    return [word['content'] for word in words if (word['content'].lower() not in stop_words) and (pattern.match(word['content']))]
 
 def filter_of_stopwords(data:List[Document])->List[Filtered2Document]:
     #PRE: data has a json format and has been filtered by confidence
@@ -205,7 +205,7 @@ def connection_to_data(myblob: func.InputStream)->List[Document]:
         
         #Convert the content of the blob into python objects format
         jsonData=json.loads(blob_data)
-        logging.info("Data from the blob obtained correctly")
+        logging.info("Data from the blob obtained correctly, from the json file")
         return jsonData
 
     except Exception as e:
@@ -227,6 +227,7 @@ def summarize_with_openai(text_to_summarize: str)->str:
         endpoint = os.getenv("ENDPOINT_URL_AI")
         deployment = os.getenv("DEPLOYMENT_NAME_AI")
         subscription_key = os.getenv("AZURE_OPENAI_API_KEY")
+
         #Initialize Azure OpenAI client with key-based authentication
         client = AzureOpenAI(
             azure_endpoint = endpoint,
@@ -239,19 +240,16 @@ def summarize_with_openai(text_to_summarize: str)->str:
             messages= [
             {
                 "role": "system",
-                "content": "Lawyer that wants to sum up a collection of documents into the most important points."
+                "content": "Lawyer that wants to sum up a collection of documents into the most important points of all the data. We don't want a summary of each page."
             },
             {
                 "role": "user",
                 "content": f"Sum up this collection of documents in 10 different important concepts and tell me from which certain page you took each concept. The result must be in json format:\n{text_to_summarize}"
             }],
             max_tokens=800,
-            temperature=0.7,
-            top_p=0.95,
-            frequency_penalty=0,
-            presence_penalty=0,
-            stop=None,
-            stream=False
+            temperature=0.7,#more creative response, 0 will be coherence
+            top_p=0.95,#probability of take words that are in the 95% of the acumulated probability
+            stream=False#give the whole answer at same time
         )
         #response will be the whole answer of the gpt-4 service, in json format
         response= completion.to_json()
@@ -285,14 +283,14 @@ def validate_summary(summary:str)->Union[Union[list,dict],None]:
 #in my case I have choosen creating a blob in the same container that THE INITIAL DATA WAS UPLOADED, which
 #produce this Azure Function to start
 
-def upload_to_blob(container_name:str, blob_name:str, text: Union[list,dict])->bool:
+def upload_to_blob(container_name:str, blob_name:str, text: Union[list,dict]):
     #PRE: container_name is a container resource created in the Azure cloud, blob_name is a string which indicates the blob where
     #the final summary will be located, text is the final summary
     #POST: returns true if the summary has been well uploaded to the container(in a blob) and false in other case
 
     try:
         #Get the connection string from environment variables
-        connection_string = os.getenv("Connection_STORAGE")
+        connection_string = os.getenv("CONNECTION_STORAGE")
 
         #Create a BlobServiceClient object to interact with the Blob service
         blob_service_client = BlobServiceClient.from_connection_string(connection_string)
@@ -312,37 +310,33 @@ def upload_to_blob(container_name:str, blob_name:str, text: Union[list,dict])->b
         #Upload a message into the loggings to communicate that the result has been uploades
         logging.info(f"Summary uploaded successfully to {blob_name} in the container: {container_name}")
 
-        return True
+        return 
 
     except Exception as e:
         logging.error(f"Error uploading summary to blob: {e}")
         #At this point we will see the error in the logs of the Azure Function
-        return False
+        return 
 
 app = func.FunctionApp()
 
-@app.blob_trigger(arg_name="myblob", path="container/{name}",connection="Connection_STORAGE") 
-
+@app.blob_trigger(arg_name="myblob", path="container/{name}",connection="CONNECTION_STORAGE") 
 #blob_tigger activates the function when a new blob is uploaded in the specified container located in the cloud(resource)
-
 #arg_name is the variable we are going to use in the function to refer the blob
-
 #path is the route of the blob that will activate the function
-
 #connection is the configuration that we are going to use to access to the container in the cloud
 
-def blob_trigger(myblob: func.InputStream)->bool:
+def blob_trigger_summarizer(myblob: func.InputStream):
     
     logging.info(f"Python blob trigger function processed blob. Name of the blob: {myblob.name}")
     
-    if "summary_report.json" == myblob.name:
+    if myblob.name.endswith("summary_report.json"):
         #We don't want to repeat the activation of the function uploading the final summary(another blob) in the container
-        logging.info(f"Skipping process for blob: {myblob}")
+        logging.info(f"Skipping process for blob: {myblob.name}")
         return
 
     #Gets the data of the blob that has been uploaded in json format
     json_data=connection_to_data(myblob)
-
+   
     if json_data:
         #Clean data
         importantData=cleaner_of_data(json_data)
@@ -359,8 +353,10 @@ def blob_trigger(myblob: func.InputStream)->bool:
                 finalBlob="summary_report.json"
                 #will return a bool that will say if all the process has run correctly
                 upload_to_blob('container', finalBlob, summaryJSON)
+
+    return
+                
+
+    
+                
             
-    
-  
-    
-    
