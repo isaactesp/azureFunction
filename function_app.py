@@ -56,34 +56,32 @@ class Document(TypedDict):
     content: List[Page]
 
 #Filtered typed classes
-class Filtered1Page(TypedDict):
+class PageFilteredByConfidence(TypedDict):
     page_number: int
     words: List[Word]
-class Filtered1Document(TypedDict):
+class DocumentFilteredByConfidence(TypedDict):
     doc_id: int
-    content: List[Filtered1Page]
+    content: List[PageFilteredByConfidence]
 
 
-
-def filter_of_confidence(doc: Document, threshold: float)->Filtered1Document:
-    #I create function thet removes the part of the data that we feel that
-    #hasn't been extracted in a right way with the OCR, because of its confidence
-
+#I create function thet removes the part of the data that we feel that
+#hasn't been extracted in a right way with the OCR, because of its confidence
+def filter_of_confidence(doc: Document, threshold: float)->DocumentFilteredByConfidence:
     #PRE: doc is one of the components(dictionary) of the main list (composed of many documents) and 
     #threshold the minimum "confidence" of the "words" we want to mantain
     #POST: returns the document in same format with the "words" that have the key of "confidence" more than threshold, 
     #deleting the keys "selection marks", "width", "height" and "unit" from the "content" key of each page because aren't relevant
 
    #Initialize a new dictionary for the filtered document, maintaining the format
-    filtered_doc : Filtered1Document = {
-        'doc_id': doc['doc_id'],  #Preserve doc_id
+    filtered_doc : DocumentFilteredByConfidence= {
+        'doc_id': doc['doc_id'],  
         'content': []
     }
     
     #Iterate over the pages in the document
     for page in doc['content']:
         #Initialize a new page structure with page_number
-        filtered_page = {
+        filtered_page: PageFilteredByConfidence = {
             'page_number': page['page_number'],  #Preserve page_number
             'words': []  #This will hold filtered words
         }
@@ -100,19 +98,19 @@ def filter_of_confidence(doc: Document, threshold: float)->Filtered1Document:
     
     return filtered_doc
 
-def filter_data_by_confidence(data: List[Document], threshold:float)->List[Filtered1Document]:
+def filter_data_by_confidence(data: List[Document], threshold:float)->List[DocumentFilteredByConfidence]:
     #PRE: data is the whole data(composed of dictionaries, each document is one dictionary) we want to filter by confidence
     #POST: returns the data in same format but filtered by confidence
     return [filter_of_confidence(doc, threshold) for doc in data]
 
 
 #Define the typed classes uses in the filter2
-class Filtered2Page(TypedDict):
+class PageFilteredByStopwords(TypedDict):
     page_number: int
     words: List[str]
-class Filtered2Document(TypedDict):
+class DocumentFilteredByStopwords(TypedDict):
     doc_id: int
-    content: List[Filtered2Page]
+    content: List[PageFilteredByStopwords]
 
 def clean_words(words:List[Word])->List[str]:
     #PRE: words is a list of dictionaries, which every dictionary has at least a 'content' key
@@ -123,23 +121,23 @@ def clean_words(words:List[Word])->List[str]:
     pattern=re.compile(r'^[a-zA-Z]{3,}$')
     return [word['content'] for word in words if (word['content'].lower() not in stop_words) and (pattern.match(word['content']))]
 
-def filter_of_stopwords(data:List[Document])->List[Filtered2Document]:
+def filter_of_stopwords(data:List[DocumentFilteredByConfidence])->List[DocumentFilteredByStopwords]:
     #PRE: data has a json format and has been filtered by confidence
     #POST: returns data in json format, but now 'words' is returned as a list of 
     #strings(with all the words of each page filtered)
 
-    filtered_by_stopwords: List[Filtered2Document] = []
+    filtered_by_stopwords: List[DocumentFilteredByStopwords] = []
     
     #Iterate over each document
     for doc in data:
-        cleaned_content:Filtered2Document = []
+        cleaned_content: List[PageFilteredByStopwords] = []
         
         #Iterate over each page in the document
         for page in doc['content']:
-            #Clean the words (remove stopwords)
+            #Clean the words of each page (remove stopwords)
             cleaned_words = clean_words(page['words'])
             
-            #Add cleaned data to the content
+            #Add cleaned words to the words of the page
             cleaned_content.append({'page_number': page['page_number'],'words': cleaned_words})
         
         #Add the cleaned document to the processed list
@@ -148,7 +146,7 @@ def filter_of_stopwords(data:List[Document])->List[Filtered2Document]:
     return filtered_by_stopwords
 
 
-def json_to_text_with_metadata(data: List[Filtered2Document])->str:
+def json_to_text_with_metadata(data: List[DocumentFilteredByStopwords])->str:
     #We want to transform the json in raw text to be sent to the AI
     #PRE: data must have the next format
     #  [{"doc_id": docNum1, 
@@ -184,10 +182,9 @@ def json_to_text_with_metadata(data: List[Filtered2Document])->str:
 def cleaner_of_data(data:List[Document])->str:
     #PRE: data is a list of documents we want to clean
     #POST:returns a string with the cleaned data form each page and document
-
-
+    
     #Filter the data by confidence
-    filter1=filter_data_by_confidence(data,0.8)
+    filter1 =filter_data_by_confidence(data,0.8)
     #Filter the data (that has been filtered by confidence), by stop words
     filter2 =filter_of_stopwords(filter1)
     #Write the json document into continous text, specifying Document and Page numbers
@@ -195,7 +192,7 @@ def cleaner_of_data(data:List[Document])->str:
     
     return continuousText
 
-def connection_to_data(myblob: func.InputStream)->List[Document]:
+def connection_to_data(myblob: func.InputStream)->Union[List[Document],None]:
     #PRE:myblob is the new blob uploaded in a certain container in the cloud
     #POST: returns the json file saved in the blob but in object format
    
@@ -219,7 +216,7 @@ def connection_to_data(myblob: func.InputStream)->List[Document]:
 #one for the Step1(cleaning) and other for the Step2(summarizing)
 
 
-def summarize_with_openai(text_to_summarize: str)->str:
+def summarize_with_openai(text_to_summarize: str)->Union[str,None]:
     #PRE: immportantData is an list of objects, each object is a page from the whole cleaned data
     #POST: returns the final summary in a sequence of points with metadata(from which document and page it has obtained each point)
     try:
@@ -228,39 +225,44 @@ def summarize_with_openai(text_to_summarize: str)->str:
         deployment = os.getenv("DEPLOYMENT_NAME_AI")
         subscription_key = os.getenv("AZURE_OPENAI_API_KEY")
 
-        #Initialize Azure OpenAI client with key-based authentication
-        client = AzureOpenAI(
-            azure_endpoint = endpoint,
-            api_key = subscription_key,
-            api_version = "2024-05-01-preview",
-        )
-
-        completion = client.chat.completions.create(
-            model=deployment,
-            messages= [
-            {
-                "role": "system",
-                "content": "Lawyer that wants to sum up a collection of documents into the most important points of all the data. We don't want a summary of each page."
-            },
-            {
-                "role": "user",
-                "content": f"Sum up this collection of documents in 10 different important concepts and tell me from which certain page you took each concept. The result must be in json format:\n{text_to_summarize}"
-            }],
-            max_tokens=800,
-            temperature=0.7,#more creative response, 0 will be coherence
-            top_p=0.95,#probability of take words that are in the 95% of the acumulated probability
-            stream=False#give the whole answer at same time
-        )
-        #response will be the whole answer of the gpt-4 service, in json format
-        response= completion.to_json()
-        #Obtain the objects from the json
-        data = json.loads(response)
-        #We want only the summary
-        summary=data["choices"][0]["message"]["content"]
-        return (summary)
+        if endpoint and deployment and subscription_key:
+            #Initialize Azure OpenAI client with key-based authentication
+            client = AzureOpenAI(
+                azure_endpoint = endpoint,
+                api_key = subscription_key,
+                api_version = "2024-05-01-preview",
+            )
+  
+            completion = client.chat.completions.create(
+                model=deployment,
+                messages= [
+                {
+                    "role": "system",
+                    "content": "Lawyer that wants to sum up a collection of documents into the most important points of all the data. We don't want a summary of each page."
+                },
+                {
+                    "role": "user",
+                    "content": f"Sum up this collection of documents in 10 different important concepts and tell me from which certain page you took each concept. The result must be in json format:\n{text_to_summarize}"
+                }],
+                max_tokens=800,
+                temperature=0.7,#more creative response, 0 will be coherence
+                top_p=0.95,#probability of take words that are in the 95% of the acumulated probability 
+                stream=False#give the whole answer at same time
+            )
+            #response will be the whole answer of the gpt-4 service, in json format
+            response= completion.to_json()
+            #Obtain the objects from the json
+            data = json.loads(response)
+            #We want only the summary
+            summary=data["choices"][0]["message"]["content"]
+            return (summary)
+        else:
+            logging.info("No environmental variables to cal de AI service.")
+            return None
+    
 
     except Exception as e:
-        logging.error(f"Error calling OpenAI API: {e}")
+        logging.error(f"Error getting the environmental variables: {e}")
         #At this point we will see the error in the Logs the Azure function
         return None
     
@@ -290,32 +292,35 @@ def upload_to_blob(container_name:str, blob_name:str, text: Union[list,dict]):
 
     try:
         #Get the connection string from environment variables
-        connection_string = os.getenv("CONNECTION_STORAGE")
+        connection_string: Union[str,None] = os.getenv("CONNECTION_STORAGE")
 
-        #Create a BlobServiceClient object to interact with the Blob service
-        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+        if connection_string:
+            #Create a BlobServiceClient object to interact with the Blob service
+            blob_service_client = BlobServiceClient.from_connection_string(connection_string)
 
-        #Get the reference to the container
-        container_client = blob_service_client.get_container_client(container_name)
+            #Get the reference to the container
+            container_client = blob_service_client.get_container_client(container_name)
 
-        #Create a reference to upload the text in the blob of name
-        blob_client = container_client.get_blob_client(blob_name)
+            #Create a reference to upload the text in the blob of name
+            blob_client = container_client.get_blob_client(blob_name)
 
-        #Upload text to the blob, if it was another blob with the same name, rewrite the content of it 
-        #and if it wasn't any blob with that name we create it
-        summary_to_encode=json.dumps(text,indent=4)
+            #Upload text to the blob, if it was another blob with the same name, rewrite the content of it 
+            #and if it wasn't any blob with that name we create it
+            summary_to_encode=json.dumps(text,indent=4)
 
-        blob_client.upload_blob(summary_to_encode.encode('utf-8'), blob_type="BlockBlob", overwrite=True)  
+            blob_client.upload_blob(summary_to_encode.encode('utf-8'), blob_type="BlockBlob", overwrite=True)  
 
-        #Upload a message into the loggings to communicate that the result has been uploades
-        logging.info(f"Summary uploaded successfully to {blob_name} in the container: {container_name}")
+            #Upload a message into the loggings to communicate that the result has been uploades
+            logging.info(f"Summary uploaded successfully to {blob_name} in the container: {container_name}")
+        else:
+            logging.info("Error getting the environmental variable of the storage service")
 
         return 
 
     except Exception as e:
         logging.error(f"Error uploading summary to blob: {e}")
         #At this point we will see the error in the logs of the Azure Function
-        return 
+        return None
 
 app = func.FunctionApp()
 
@@ -329,10 +334,11 @@ def blob_trigger_summarizer(myblob: func.InputStream):
     
     logging.info(f"Python blob trigger function processed blob. Name of the blob: {myblob.name}")
     
-    if myblob.name.endswith("summary_report.json"):
-        #We don't want to repeat the activation of the function uploading the final summary(another blob) in the container
-        logging.info(f"Skipping process for blob: {myblob.name}")
-        return
+    if myblob.name: 
+        if myblob.name.endswith("summary_report.json"):
+            #We don't want to repeat the activation of the function uploading the final summary(another blob) in the container
+            logging.info(f"Skipping process for blob: {myblob.name}")
+            return
 
     #Gets the data of the blob that has been uploaded in json format
     json_data=connection_to_data(myblob)
